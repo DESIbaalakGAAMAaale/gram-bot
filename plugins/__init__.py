@@ -14,6 +14,7 @@ from .autolink import setup_autolink_handler
 from .referral import setup_referral_handler
 from .gdl import setup_gdl_handler
 from .directdl import setup_directdl_handler
+from .fbdl import setup_fbdl_handler
 
 def setup_plugins_handlers(app):
     setup_plan_handler(app)
@@ -30,3 +31,4 @@ def setup_plugins_handlers(app):
     setup_settings_handler(app)
     setup_autolink_handler(app)   # group=1 — Telegram লিংক handle করে
     setup_referral_handler(app)
+    setup_fbdl_handler(app)
