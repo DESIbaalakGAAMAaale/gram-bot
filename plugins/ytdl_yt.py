@@ -420,7 +420,7 @@ async def pybalt_fallback_download(url: str, output_path: str, audio_only: bool 
 
 # ─── Handler ─────────────────────────────────────────────────────────────────
 
-def setup_ytdl_handler(app: Client):
+def setup_ytdl_yt_handler(app: Client):
 
     async def ytdl_command(client: Client, message: Message):
         user_id = message.from_user.id
