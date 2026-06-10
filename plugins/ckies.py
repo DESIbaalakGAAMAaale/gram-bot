@@ -29,7 +29,7 @@ except ImportError:
     OWNER_ID = 0  # fallback — অবশ্যই সঠিক ID দাও
 
 # Cookies file path — bot root / cookies / SmartYTUtil.txt
-COOKIES_PATH = Path(__file__).resolve().parent.parent / "cookies" / "SmartYTUtil.txt"
+COOKIES_PATH = Path(__file__).resolve().parent.parent / "cookies" / "ytcookies.txt"
 
 # ─── State ────────────────────────────────────────────────────────────────────
 pending_rmc: dict = {}
