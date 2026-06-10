@@ -1,3 +1,8 @@
+# ckies.py — Cookies Manager Plugin (Pyrofork)
+# Commands: /adc  →  Add/update cookies file (owner only, reply to .txt file)
+#           /rmc  →  Remove/delete cookies file (owner only)
+# Place this file inside your bot's plugins/ folder.
+
 import hashlib
 import os
 import re
@@ -5,151 +10,172 @@ import shutil
 import time
 from pathlib import Path
 
-from telethon import events
+from pyrogram import Client, filters
+from pyrogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
+from pyrogram.enums import ParseMode
 
-import config
-from helpers import LOGGER, send_message, edit_message
-from helpers.buttons import SmartButtons
+from .ythelpers import LOGGER
 
-prefixes = ''.join(re.escape(p) for p in config.COMMAND_PREFIXES)
-adc_pattern = re.compile(rf'^[{prefixes}]adc(?:\s+.+)?$', re.IGNORECASE)
-rmc_pattern = re.compile(rf'^[{prefixes}]rmc(?:\s+.+)?$', re.IGNORECASE)
+# ─── Config ───────────────────────────────────────────────────────────────────
+# তোমার bot এর OWNER_ID এখানে বসাও অথবা config থেকে import করো
+try:
+    from config import OWNER_ID
+except ImportError:
+    OWNER_ID = 0  # fallback — অবশ্যই সঠিক ID দাও
 
-# plugins/ is one level below the project root → go up two levels to reach root
+# Cookies file path — bot root / cookies / SmartYTUtil.txt
 COOKIES_PATH = Path(__file__).resolve().parent.parent / "cookies" / "SmartYTUtil.txt"
 
+# ─── State ────────────────────────────────────────────────────────────────────
 pending_rmc: dict = {}
 
 
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
 def is_valid_netscape_cookies(content: str) -> bool:
-    lines = content.strip().splitlines()
-    has_header = False
+    """Netscape cookies format যাচাই করে।"""
+    has_header      = False
     has_valid_entry = False
-    for line in lines:
+    for line in content.strip().splitlines():
         line = line.strip()
         if not line:
             continue
-        if line.startswith('#'):
-            if 'Netscape' in line or 'HTTP Cookie' in line:
+        if line.startswith("#"):
+            if "Netscape" in line or "HTTP Cookie" in line:
                 has_header = True
             continue
-        parts = line.split('\t')
-        if len(parts) >= 6:
+        if len(line.split("\t")) >= 6:
             has_valid_entry = True
     return has_header or has_valid_entry
 
 
-def build_rmc_markup(token: str):
-    sb = SmartButtons()
-    sb.button("❌ Cancel", callback_data=f"RMC|{token}|cancel")
-    sb.button("Delete ⚙️", callback_data=f"RMC|{token}|delete")
-    return sb.build_menu(b_cols=2)
+def build_rmc_markup(token: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("❌ Cancel",    callback_data=f"RMC|{token}|cancel"),
+            InlineKeyboardButton("Delete ⚙️",   callback_data=f"RMC|{token}|delete"),
+        ]
+    ])
 
 
-async def adc_command(event):
-    sender = await event.get_sender()
-    if sender.id != config.OWNER_ID:
+# ─── Command: /adc ────────────────────────────────────────────────────────────
+
+@Client.on_message(filters.command(["adc"], prefixes=["/", "!", "."]))
+async def adc_command(client: Client, message: Message):
+    if message.from_user.id != OWNER_ID:
         return
 
-    if not event.message.reply_to:
-        await send_message(
-            event.chat_id,
+    if not message.reply_to_message:
+        await message.reply_text(
             "**❌ Please reply to a Netscape format cookies file.**\n"
-            "**Usage:** Reply to a `.txt` cookies file with `/adc`"
+            "**Usage:** Reply to a `.txt` cookies file with `/adc`",
+            parse_mode=ParseMode.MARKDOWN,
         )
         return
 
-    replied = await event.message.get_reply_message()
+    replied = message.reply_to_message
 
-    if not replied or not replied.document:
-        await send_message(event.chat_id, "**❌ Please reply to a valid cookies file document.**")
+    if not replied.document:
+        await message.reply_text(
+            "**❌ Please reply to a valid cookies file document.**",
+            parse_mode=ParseMode.MARKDOWN,
+        )
         return
 
-    doc = replied.document
-    file_name = ""
-    if doc.attributes:
-        for attr in doc.attributes:
-            if hasattr(attr, 'file_name') and attr.file_name:
-                file_name = attr.file_name
-                break
-
-    if not file_name.endswith('.txt'):
-        await send_message(event.chat_id, "**❌ File must be a `.txt` Netscape format cookies file.**")
+    # filename চেক
+    file_name = replied.document.file_name or ""
+    if not file_name.endswith(".txt"):
+        await message.reply_text(
+            "**❌ File must be a `.txt` Netscape format cookies file.**",
+            parse_mode=ParseMode.MARKDOWN,
+        )
         return
 
-    status = await send_message(event.chat_id, "**Changing Cookies With New...**")
-    if not status:
-        return
+    status = await message.reply_text(
+        "**Changing Cookies With New...**",
+        parse_mode=ParseMode.MARKDOWN,
+    )
 
-    # Import the bot client from wherever it lives in this project
-    from bot import client as BotClient  # adjust this import to match your project
-
+    # cookies folder নিশ্চিত করো
+    COOKIES_PATH.parent.mkdir(parents=True, exist_ok=True)
     temp_path = COOKIES_PATH.parent / "cookies_new_temp.txt"
 
+    # ফাইল download করো
     try:
-        await BotClient.download_media(replied.document, file=str(temp_path))
+        await client.download_media(replied, file_name=str(temp_path))
     except Exception as e:
         LOGGER.error(f"Cookie download error: {e}")
-        await edit_message(event.chat_id, status.id, "**Failed To Update Cookies As Not Valid**")
+        await status.edit_text("**Failed To Update Cookies As Not Valid**")
         return
 
     if not temp_path.exists():
-        await edit_message(event.chat_id, status.id, "**Failed To Update Cookies As Not Valid**")
+        await status.edit_text("**Failed To Update Cookies As Not Valid**")
         return
 
+    # content পড়ো ও validate করো
     try:
-        content = temp_path.read_text(encoding='utf-8', errors='ignore')
+        content = temp_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
         LOGGER.error(f"Cookie read error: {e}")
         temp_path.unlink(missing_ok=True)
-        await edit_message(event.chat_id, status.id, "**Failed To Update Cookies As Not Valid**")
+        await status.edit_text("**Failed To Update Cookies As Not Valid**")
         return
 
     if not is_valid_netscape_cookies(content):
         temp_path.unlink(missing_ok=True)
-        await edit_message(event.chat_id, status.id, "**Failed To Update Cookies As Not Valid**")
+        await status.edit_text("**Failed To Update Cookies As Not Valid**")
         return
 
+    # replace করো
     try:
         if COOKIES_PATH.exists():
             COOKIES_PATH.unlink()
         shutil.move(str(temp_path), str(COOKIES_PATH))
-        LOGGER.info(f"Cookies updated successfully by owner {sender.id}")
-        await edit_message(event.chat_id, status.id, "**Successfully Changed The Cookies ✅**")
+        LOGGER.info(f"Cookies updated successfully by owner {message.from_user.id}")
+        await status.edit_text("**Successfully Changed The Cookies ✅**")
     except Exception as e:
         LOGGER.error(f"Cookie replace error: {e}")
         temp_path.unlink(missing_ok=True)
-        await edit_message(event.chat_id, status.id, "**Failed To Update Cookies As Not Valid**")
+        await status.edit_text("**Failed To Update Cookies As Not Valid**")
 
 
-async def rmc_command(event):
-    sender = await event.get_sender()
-    if sender.id != config.OWNER_ID:
+# ─── Command: /rmc ────────────────────────────────────────────────────────────
+
+@Client.on_message(filters.command(["rmc"], prefixes=["/", "!", "."]))
+async def rmc_command(client: Client, message: Message):
+    if message.from_user.id != OWNER_ID:
         return
 
-    LOGGER.info(f"Remove cookies requested by owner {sender.id}")
+    LOGGER.info(f"Remove cookies requested by owner {message.from_user.id}")
 
-    raw   = f"{time.time()}{sender.id}"
+    raw   = f"{time.time()}{message.from_user.id}"
     token = hashlib.md5(raw.encode()).hexdigest()[:12]
 
     pending_rmc[token] = {
-        'user_id': sender.id,
-        'chat_id': event.chat_id,
+        "user_id": message.from_user.id,
+        "chat_id": message.chat.id,
     }
 
-    await send_message(
-        event.chat_id,
+    await message.reply_text(
         "**Do You Want To Cleanup Cookies?**",
-        buttons=build_rmc_markup(token),
+        reply_markup=build_rmc_markup(token),
+        parse_mode=ParseMode.MARKDOWN,
     )
 
 
-async def rmc_callback(event):
-    if event.sender_id != config.OWNER_ID:
+# ─── Callback: RMC ───────────────────────────────────────────────────────────
+
+@Client.on_callback_query(filters.regex(r"^RMC\|"))
+async def rmc_callback(client: Client, callback_query: CallbackQuery):
+    if callback_query.from_user.id != OWNER_ID:
         return
 
-    raw   = event.data.decode()
-    parts = raw.split('|')
+    parts = callback_query.data.split("|")
     if len(parts) != 3:
         return
 
@@ -158,18 +184,18 @@ async def rmc_callback(event):
 
     data = pending_rmc.get(token)
     if not data:
-        await event.answer("❌ Session expired.", alert=True)
+        await callback_query.answer("❌ Session expired.", show_alert=True)
         try:
-            await event.edit("**❌ Session expired.**", buttons=None)
+            await callback_query.message.edit_text("**❌ Session expired.**")
         except Exception:
             pass
         return
 
     if action == "cancel":
         pending_rmc.pop(token, None)
-        await event.answer("✅ Cancelled", alert=False)
+        await callback_query.answer("✅ Cancelled")
         try:
-            await event.edit("**❌ Cancelled.**", buttons=None)
+            await callback_query.message.edit_text("**❌ Cancelled.**")
         except Exception:
             pass
 
@@ -177,24 +203,17 @@ async def rmc_callback(event):
         try:
             if COOKIES_PATH.exists():
                 COOKIES_PATH.unlink()
-                LOGGER.info(f"Cookies deleted by owner {event.sender_id}")
-                await event.edit("**Successfully Deleted Cookies ❌**", buttons=None)
+                LOGGER.info(f"Cookies deleted by owner {callback_query.from_user.id}")
+                await callback_query.message.edit_text("**Successfully Deleted Cookies ❌**")
             else:
-                await event.edit("**No Cookies File Found To Delete.**", buttons=None)
-            await event.answer("✅ Done", alert=False)
+                await callback_query.message.edit_text("**No Cookies File Found To Delete.**")
+            await callback_query.answer("✅ Done")
         except Exception as e:
             LOGGER.error(f"Cookie delete error: {e}")
-            await event.answer("❌ Failed to delete cookies.", alert=True)
+            await callback_query.answer("❌ Failed to delete cookies.", show_alert=True)
             try:
-                await event.edit("**❌ Failed To Delete Cookies.**", buttons=None)
+                await callback_query.message.edit_text("**❌ Failed To Delete Cookies.**")
             except Exception:
                 pass
 
         pending_rmc.pop(token, None)
-
-
-# ── Handler registration ───────────────────────────────────────────────────
-def register_handlers(client):
-    client.on(events.NewMessage(pattern=adc_pattern))(adc_command)
-    client.on(events.NewMessage(pattern=rmc_pattern))(rmc_command)
-    client.on(events.CallbackQuery(pattern=rb'^RMC\|'))(rmc_callback)
