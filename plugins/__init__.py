@@ -15,7 +15,7 @@ from .referral import setup_referral_handler
 from .gdl import setup_gdl_handler
 from .directdl import setup_directdl_handler
 from .fbdl import setup_fbdl_handler
-from .ytdl_yt import setup_ytdl_handler
+from .ytdl_yt import setup_ytdl_yt_handle
 
 def setup_plugins_handlers(app):
     setup_plan_handler(app)
