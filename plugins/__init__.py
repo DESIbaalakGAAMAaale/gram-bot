@@ -27,6 +27,7 @@ def setup_plugins_handlers(app):
     setup_login_handler(app)
     setup_pbatch_handler(app)
     setup_ytdl_handler(app)
+    setup_ytdl_yt_handler(app)
     setup_ytupload_handler(app)
     setup_refresh_handler(app)
     setup_settings_handler(app)
