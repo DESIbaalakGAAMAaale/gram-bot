@@ -1,6 +1,23 @@
 build:
+
   docker:
+
     web: Dockerfile
 
+    worker: Dockerfile
+
+
+
 run:
-  worker: bash start.sh
+
+  web: <yahan aapki web command likhein>
+
+  worker:
+
+    command:
+
+      - bash start.sh
+
+    image: worker
+
+    
